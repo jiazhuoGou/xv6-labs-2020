@@ -12,13 +12,13 @@ fmtname(char *path)
   // Find first character after last slash.
   for(p=path+strlen(path); p >= path && *p != '/'; p--)
     ;
-  p++;
+  p++;  // 定位到路径中最后一个文件名的斜杠后
 
   // Return blank-padded name.
   if(strlen(p) >= DIRSIZ)
     return p;
   memmove(buf, p, strlen(p));
-  memset(buf+strlen(p), ' ', DIRSIZ-strlen(p));
+  memset(buf+strlen(p), ' ', DIRSIZ-strlen(p));// 将数组中正常文件名后面的内容用空格填充
   return buf;
 }
 
