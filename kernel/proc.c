@@ -52,8 +52,10 @@ procinit(void)
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
-      p->kstack = KSTACK((int) (p - proc));
+      //p->kstack = KSTACK((int) (p - proc));
   }
+  // Lab
+  kvminithart();
 }
 
 // Must be called with interrupts disabled,
@@ -135,6 +137,21 @@ found:
     return 0;
   }
 
+  // 新加部分开始
+
+  // 为新进程创建独立的页表，并将内核所需要的各种映射添加至新页表上
+  p->kernelpgtbl = kvminit_newpgtbl();
+
+  // 分配一个物理页，作为新进程的内核栈使用
+  char *pa = kalloc();
+  if (pa==0)
+    panic("kalloc");
+  uint64 va = KSTACK((int)0);  // 将内核栈映射到固定的逻辑地址上
+  kvmmap(p->kernelpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va; // 记录内核的虚拟地址
+
+  // 新加部分结束
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -164,6 +181,21 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  // begin
+  // 释放进程的内核栈
+  void *kstack_pa = (void*)kvmpa(p->kernelpgtbl, p->kstack);
+  kfree(kstack_pa);
+  p->kstack = 0;
+  // 注意：此处不能使用 proc_freepagetable，因为其不仅会释放页表本身，还会把页表内所有的叶节点对应的物理页也释放掉。
+  // 这会导致内核运行所需要的关键物理页被释放，从而导致内核崩溃。
+  // 这里使用 kfree(p->kernelpgtbl) 也是不足够的，因为这只释放了**一级页表本身**，而不释放二级以及三级页表所占用的空间。
+  
+  // 递归释放进程独享的页表，释放页表本身所占用的空间，但**不释放页表指向的物理页**
+  kvm_free_kernelpgtbl(p->kernelpgtbl);
+  p->kernelpgtbl = 0;
+  p->state = UNUSED;
+  //end
 }
 
 // Create a user page table for a given process,
@@ -453,7 +485,18 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // begin
+        w_satp(MAKE_SATP(p->kernelpgtbl));
+        sfence_vma(); // 清除块表缓存
+        // end
+
         swtch(&c->context, &p->context);
+
+        // begin 切换回全局内核页表
+        kvminithart();
+        //end
+
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.

@@ -9,7 +9,8 @@
 /*
  * the kernel's page table.
  */
-pagetable_t kernel_pagetable;
+#define NUM_PTES_PER_PAGE (PGSIZE / sizeof(pde_t))
+pagetable_t kernel_pagetable; // 全局共享的内核页表
 
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
@@ -49,20 +50,55 @@ kvmmake(void)
   return kpgtbl;
 }
 
+// 仿照上面的内核虚拟地址写法，
+// 使用kvmmap
+// 将一个虚拟地址到物理地址的映射加入页表，具体的参数可以自己去看
+// 虚拟地址，物理地址，大小，镖旗
+void kvm_map_pagetable(pagetable_t pgtbl)
+{
+  // 将内核中的直接映射添加到页表中
+  
+  // uart registers
+  kvmmap(pgtbl, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  kvmmap(pgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  kvmmap(pgtbl, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  kvmmap(pgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  kvmmap(pgtbl, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  
+  // map kernel data and the physical RAM we'll make use of.
+  kvmmap(pgtbl, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  kvmmap(pgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+}
+
+pagetable_t kvminit_newpgtbl()
+{
+  // 这块空间当作各个进程的内核页表
+  pagetable_t pgtbl = (pagetable_t) kalloc();
+  /*pagetable_t pgtbl = uvmcreate();
+  //if (pgtbl == 0) 
+    return 0;*/
+  memset(pgtbl, 0, PGSIZE);
+  kvm_map_pagetable(pgtbl); 
+  return pgtbl;
+}
+
 // Initialize the one kernel_pagetable
 void
 kvminit(void)
 {
-  kernel_pagetable = kvmmake();
-}
-
-// Switch h/w page table register to the kernel's page table,
-// and enable paging.
-void
-kvminithart()
-{
-  w_satp(MAKE_SATP(kernel_pagetable));
-  sfence_vma();
+  //kernel_pagetable = kvmmake();
+  kernel_pagetable = kvminit_newpgtbl();
 }
 
 // Return the address of the PTE in page table pagetable
@@ -96,6 +132,34 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   }
   return &pagetable[PX(0, va)];
 }
+
+// 将内核逻辑地址转换为物理地址，添加第一个参数kernelpgtbl
+uint64 kvmpa(pagetable_t pgtbl, uint64 va)
+{
+  uint64 off = va % PGSIZE; // 得到va低12位
+  pte_t *pte;
+  uint64 pa;
+
+  pte = walk(pgtbl, va, 0);// 0代表是查找，非0代表创建一个pte
+  if (pte == 0)
+    panic("kvmpa");
+  if ((*pte & PTE_V) == 0)
+    panic("kvmpa");
+  pa = PTE2PA(*pte);
+  return pa+off;
+}
+
+
+// Switch h/w page table register to the kernel's page table,
+// and enable paging.
+void
+kvminithart()
+{
+  w_satp(MAKE_SATP(kernel_pagetable));
+  sfence_vma();
+}
+
+
 
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
@@ -432,3 +496,55 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+/* 
+  lab pgtabl
+  因为是三级页表，所以要递归的打印所有的
+*/
+int vmprint_recurse(pagetable_t pagetable, int depth)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V) { // 如果页表项有效
+      // 按格式打印页表项
+      printf("..");
+      for(int j=0;j<depth;j++) {
+        printf(" ..");
+      }
+      printf("%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+
+      // 如果该节点不是叶节点，递归打印其子节点。
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        // this PTE points to a lower-level page table.
+        uint64 child = PTE2PA(pte);
+        vmprint_recurse((pagetable_t)child,depth+1);
+      }
+    }
+  }
+  return 0;
+}
+
+int vmprint(pagetable_t pagetable)
+{
+  printf("page table : %p\n", pagetable); // %p打印指针的值, 即地址
+  return vmprint_recurse(pagetable, 0);
+}
+
+// 递归释放一个内核页表中的所有 mapping，但是不释放其指向的物理页
+void
+kvm_free_kernelpgtbl(pagetable_t pagetable)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    uint64 child = PTE2PA(pte);
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){ // 如果该页表项指向更低一级的页表
+      // 递归释放低一级页表及其页表项
+      kvm_free_kernelpgtbl((pagetable_t)child);
+      pagetable[i] = 0;
+    }
+  }
+  kfree((void*)pagetable); // 释放当前级别页表所占用空间
+}
+

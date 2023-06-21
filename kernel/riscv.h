@@ -335,7 +335,13 @@ sfence_vma()
 #define PGSIZE 4096 // bytes per page
 #define PGSHIFT 12  // bits of offset within a page
 
+// 向上入，就是sz不是基准的倍数，加上基准再去与操作，就是把sz增大至它的倍数
+// 比如原来是1.7倍，原来sz除以基准是个小数，现在是2倍
+// 加上一倍再来与，肯定是向上的正数倍了
 #define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1))
+// 下面是保留a的高位，也就是向下取整到4096的整数倍
+// 原来是1.7倍，现在是1倍，类似于
+// a的低12位将被清0
 #define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1))
 
 #define PTE_V (1L << 0) // valid
@@ -343,6 +349,8 @@ sfence_vma()
 #define PTE_W (1L << 2)
 #define PTE_X (1L << 3)
 #define PTE_U (1L << 4) // 1 -> user can access
+#define PTE_A (1L << 6) // 加入对访问位的支持
+#define MAXSCAN 32  // 限制一次最多可以查询的页面数量
 
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
