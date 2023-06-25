@@ -132,3 +132,16 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+// lab 实现backtrace函数
+void backtrace()
+{
+  uint64 fp = r_fp();
+  uint64 top = PGROUNDUP(fp);
+  while (fp != top)
+  { // 如果已经到达栈顶就退出
+    uint64 ra = *(uint64*)(fp-8); // 返回该地址
+    printf("%p\n", ra);
+    fp = *(uint64*)(fp-16); // 前一个fp的地址，相当于调用方的地址
+  }
+}

@@ -289,6 +289,11 @@ fork(void)
   }
   np->sz = p->sz;
 
+  // lab2 添加的代码
+  // 因为要保证子进程也是
+  np->traceMask = p->traceMask;
+
+
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -653,4 +658,16 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+uint64 count_process(void)
+{
+  uint64 count_proc = 0;
+  for (struct proc *p = proc; p < &proc[NPROC]; p++)
+  {
+    // 因为只需要读进程列表，所以不用加锁
+    if (p->state != UNUSED)
+      count_proc++;
+  }
+  return count_proc;
 }

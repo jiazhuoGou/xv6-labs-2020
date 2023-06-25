@@ -80,3 +80,20 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+// lab2 添加
+uint64 count_free_mem(void)
+{
+  acquire(&kmem.lock);  // 内存管理要用锁，仿照上面的写法
+  // 统计空闲页数, 乘上每页大小(4K)，就是空间的内存字节数
+  uint64 mem_bytes = 0;
+  // 相当于这就空闲内存链表的首节点，然后遍历计数
+  struct run *r = kmem.freelist;
+  while (r)
+  {
+    mem_bytes += PGSIZE;  // pgsize是4096
+    r = r->next;
+  }
+  release(&kmem.lock);
+  return mem_bytes;
+}

@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h"
 
 uint64
 sys_exit(void)
@@ -58,6 +59,8 @@ sys_sleep(void)
   int n;
   uint ticks0;
 
+  backtrace();  // 每次调用的时候打印堆栈
+
   if(argint(0, &n) < 0)
     return -1;
   acquire(&tickslock);
@@ -70,6 +73,9 @@ sys_sleep(void)
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
+  
+  //backtrace();
+  
   return 0;
 }
 
@@ -94,4 +100,31 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// lab2 sys_trace实现
+uint64 sys_trace(void)
+{
+  int n;
+  if (argint(0, &n) < 0)  // 读取trapframe->a0号寄存器的值
+    return -1;
+  myproc()->traceMask = n;
+  return 0;
+}
+
+// <lab2 sysinfo实现>
+uint64 sys_sysinfo(void)
+{
+  uint64 addr;
+  if (argaddr(0, &addr) < 0)
+    return -1;
+  struct sysinfo sinfo;
+  sinfo.freemem = count_free_mem();
+  sinfo.nproc = count_process();
+  printf("hellpo");
+
+  if (copyout(myproc()->pagetable, addr, (char *)&sinfo, sizeof(sinfo)) < 0)
+    return -1;
+  return 0;
+
 }

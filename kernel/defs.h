@@ -63,6 +63,7 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+uint64          count_free_mem(void);   // lab2 new add
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -80,6 +81,7 @@ int             pipewrite(struct pipe*, uint64, int);
 void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
+void            backtrace(void);    // lab
 
 // proc.c
 int             cpuid(void);
@@ -104,6 +106,8 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+// <函数声明，统计运行的进程数>
+uint64          count_process(void);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
