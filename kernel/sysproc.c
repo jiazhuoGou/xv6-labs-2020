@@ -95,3 +95,26 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+// <lab4>
+uint64 sys_sigalarm(void)
+{
+  if (argint(0, &myproc()->AlarmInteval) < 0)
+    return -1;
+  if (argaddr(1, &myproc()->Handler) < 0)  
+    return -1;
+  return 0;
+}
+
+// <lab4>
+uint64 sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+  
+  // 恢复现场并将计数器和标志重置
+  memmove(p->trapframe, &p->alarmframe, sizeof(struct trapframe));  
+  p->Counter = 0;                                                   
+  p->InHandler = 0;                                                   
+  return 0;
+}
