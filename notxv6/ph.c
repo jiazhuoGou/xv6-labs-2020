@@ -8,6 +8,8 @@
 #define NBUCKET 5
 #define NKEYS 100000
 
+pthread_mutex_t locks[NKEYS];  // <声明一个互斥锁数组>
+
 struct entry {
   int key;
   int value;
@@ -40,7 +42,7 @@ static
 void put(int key, int value)
 {
   int i = key % NBUCKET;
-
+  pthread_mutex_lock(&locks[i]);
   // is the key already present?
   struct entry *e = 0;
   for (e = table[i]; e != 0; e = e->next) {
@@ -52,8 +54,10 @@ void put(int key, int value)
     e->value = value;
   } else {
     // the new is new.
+    // <头插法，产生冲突的key放在链表开头>
     insert(key, value, &table[i], table[i]);
   }
+  pthread_mutex_unlock(&locks[i]);
 
 }
 
@@ -116,6 +120,12 @@ main(int argc, char *argv[])
   assert(NKEYS % nthread == 0);
   for (int i = 0; i < NKEYS; i++) {
     keys[i] = random();
+  }
+
+  // <锁的初始化，给每一个bucket加锁
+  for (int i = 0; i < nthread; ++i)
+  {
+    pthread_mutex_init(&locks[i], NULL);
   }
 
   //
