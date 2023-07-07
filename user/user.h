@@ -23,6 +23,15 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+// <系统调用原型>
+// addr和off都是0，所以sys_mmap不需要传入这两个参数
+// length:字节数，不一定等于文件大小
+// prot:权限，PROT_READ, PROT_WRITE
+// flag:MAP_SHARED, MAPPRIVATE, shared需要将内存中的修改部分写回文件
+// fd:文件描述符
+void *mmap(void *addr, int length, int prot, int flags, int fd, int off);
+// 对这片内存映射区域取消映射
+int munmap(void *addr, int length);
 
 // ulib.c
 int stat(const char*, struct stat*);

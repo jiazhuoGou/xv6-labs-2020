@@ -484,3 +484,86 @@ sys_pipe(void)
   }
   return 0;
 }
+
+// <sys_mmap具体实现>
+uint64 sys_mmap(void)
+{
+  int length, prot, flags, fd;
+  struct file *f;
+  if (argint(1, &length)<0 || argint(2, &prot)<0 || argint(3, &flags)<0 || argfd(4, &fd, &f)<0) 
+  {
+    return -1;
+  }
+  if (!f->writable && (prot & PROT_WRITE) && (flags & MAP_SHARED))
+  {
+    return -1;
+  }
+  struct proc *p = myproc();
+  struct vma *pvma = p->procvma;
+  for (int i = 0; i < MAXVMA; ++i)
+  {
+    if (pvma[i].valid == 0)
+    { // 说明需要新的内存映射了，但是不分配物理页
+      pvma[i].addr = p->sz;
+      pvma[i].f = filedup(f); // 增加该文件的引用数
+      pvma[i].flags = flags;
+      pvma[i].len = PGROUNDUP(length);
+      pvma[i].valid = 1;
+      pvma[i].off = 0;
+      pvma[i].valid_len = pvma[i].len;
+      p->sz += pvma[i].len;
+      return pvma[i].addr;
+    }
+  }
+  return -1;
+}
+
+uint64 sys_munmap(void)
+{
+  uint64 addr;
+  int length;
+  if (argaddr(0, &addr) < 0 || argint(1, &length) < 0) {
+    return -1;
+  }
+  struct proc *p = myproc();
+  struct vma *pvma = p->procvma;
+  int close = 0;
+  // <找到对应的vma>
+  for (int i = 0; i < MAXVMA; ++i)
+  {
+    if (pvma[i].valid && addr >= pvma[i].addr && addr < pvma[i].addr + pvma[i].len) 
+    {
+      addr = PGROUNDDOWN(addr);
+      if (addr == pvma[i].addr + pvma[i].off)
+      {
+        if (length >= pvma[i].valid_len) 
+        {
+          // 整个vma关闭
+          pvma[i].valid = 0;
+          length = pvma[i].valid_len;
+          close = 1;
+          p->sz -= pvma[i].len;
+        }
+        else
+        {
+          pvma[i].off += length;
+          pvma[i].valid_len -= length;
+        }
+      }
+      else
+      {
+        // starting at middle, should unmap until the end
+        length = pvma[i].addr + pvma[i].off + pvma[i].valid_len - addr;
+        pvma[i].valid_len -= length;
+      }
+      if (pvma[i].flags & MAP_SHARED) {
+        // write the page back to the file
+        if (_filewrite(pvma[i].f, addr, length, addr - pvma[i].addr) == -1) return -1; 
+      }
+      uvmunmap(p->pagetable, addr, PGROUNDUP(length)/PGSIZE, 0);
+      if (close) fileclose(pvma[i].f);
+      return 0;
+    }
+  }
+  return -1;
+}

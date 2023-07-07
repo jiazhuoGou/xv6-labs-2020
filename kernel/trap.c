@@ -67,10 +67,40 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 13 || r_scause() == 15) {
+    // <lab增加的
+    uint64 va = r_stval();
+    if (va < p->trapframe->sp || va >= p->sz)
+      goto exception;
+    struct vma *pvma = p->procvma;
+    va = PGROUNDDOWN(va); // <向下取整到PGSIZE的整数倍>
+    for (int i = 0; i < MAXVMA; ++i)
+    {
+      if (pvma[i].valid && va >= pvma[i].addr+pvma[i].off 
+          && va < pvma[i].addr + pvma[i].off + pvma[i].valid_len)
+        {
+          char *mem = kalloc();
+          if (mem == 0)
+            goto exception;
+          memset(mem, 0, PGSIZE);
+          int flag = (pvma[i].prot << 1) | PTE_U; // PTE_R == 2 and PROT_READ == 1
+          if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, flag) != 0)
+          {
+            kfree(mem); // 新分配的物理内存地址放入页表项失败
+            goto exception;
+          }
+          int off = va - pvma[i].addr;
+          ilock(pvma[i].f->ip);
+          readi(pvma[i].f->ip, 1, va, off, PGSIZE);
+          iunlock(pvma[i].f->ip);
+          break;
+        }
+    }
   } else {
-    printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
-    p->killed = 1;
+    exception:
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      p->killed = 1;
   }
 
   if(p->killed)
@@ -217,4 +247,6 @@ devintr()
     return 0;
   }
 }
+
+
 
